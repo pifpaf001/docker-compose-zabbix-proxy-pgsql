@@ -1,0 +1,91 @@
+### NETWORKS ###
+networks:
+  zabbixnet:
+    driver: bridge
+    driver_opts:
+     com.docker.network.enable_ipv6: "false"
+     com.docker.network.bridge.name: "br-zbxt"
+    ipam:
+      config:
+        - subnet: "10.5.0.0/24"
+          gateway: "10.5.0.1"
+
+### SERVICES ###
+services:
+
+  zabbix-proxy:
+    image: zabbix/zabbix-proxy-sqlite3:alpine-7.0-latest
+    container_name: zabbix-proxy
+    restart: unless-stopped
+    environment:
+     - ZBX_DB_HOST=localhost  # Хост базы данных
+     - ZBX_DB_NAME=zabbix  # Имя базы данных
+     - ZBX_DB_USER=zabbix  # Имя пользователя для базы данных
+     - ZBX_DB_PASSWORD=zabbix  # Пароль для базы данных
+     - ZBX_SERVER_HOST=0.0.0.0 #ip or dns name of zabbix server
+     - ZBX_HOSTNAME=proxy.gg.local  # Имя хоста для прокси
+     - ZBX_LISTEN_IP=0.0.0.0  # IP для прослушивания
+     - ZBX_LISTEN_PORT=10051  # Порт для прослушивания
+     - ZBX_PROXYMODE=0
+     - ZBX_TLSPSKIDENTITY=001 PSK gg
+     - ZBX_PROXYCONFIGFREQUENCY=1800
+     - ZBX_TLSPSKFILE=/etc/zabbix/proxy.psk
+     - ZBX_TLSCONNECT=psk
+     - ZBX_STARTPOLLERS=20
+     - ZBX_STARTPOLLERSUNREACHABLE=5
+    privileged: ${ZBXP_PRIVILEGED_MODE:-false}
+    env_file:
+      - ./proxy.env
+    volumes:
+     - ./data/db:/var/lib/zabbix/db_data  # Папка для данных Zabbix Proxy
+     #- ./data/etc:/etc/zabbix  # Папка для конфигурационных файлов (zabbix_proxy.conf, psk)
+     - ./data/etc/proxy.psk:/etc/zabbix/proxy.psk
+    ports:
+     - "10051:10051"  # Открываем порт для подключения
+    networks:
+     zabbixnet:  # Подключаемся к сети Zabbix
+      ipv4_address: 10.5.0.6
+      aliases:
+       - zabbix-proxy
+
+
+
+  zabbix-agent:
+    # image: zabbix/zabbix-agent:alpine-7.0.3
+    image: zabbix/zabbix-agent:alpine-7.0-latest
+    container_name: zabbix-agent
+    restart: unless-stopped
+    stop_grace_period: 5s
+    privileged: true
+    pid: "host"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      mode: global
+    hostname: zabbix-agent
+    env_file:
+      - ./agent.env
+    volumes:
+          - /etc/localtime:/etc/localtime:ro
+          - /etc/timezone:/etc/timezone:ro
+          - /boot/efi/:/host/boot/efi/:ro
+          # - ./data/etc/:/etc/zabbix/zabbix_agentd.d/
+          # - ./data/modules/:/var/lib/zabbix/modules
+          # - ./data/enc/:/var/lib/zabbix/enc/
+          # - ./data/ssh_keys/:/var/lib/zabbix/ssh_keys/
+    ports:
+          #- 10.5.0.5:10050:10050
+          - 10050:10050
+    networks:
+          zabbixnet:
+           ipv4_address: 10.5.0.5
+           aliases:
+            - zabbix-agent
+    depends_on:
+         - zabbix-proxy
+
